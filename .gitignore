@@ -1,0 +1,7 @@
+bin
+obj
+
+# It's good to always leave this as is, so we don't send unnecessary info to git
+images
+*.csv
+*.pdf
