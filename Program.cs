@@ -1,14 +1,13 @@
 ﻿using iText.Kernel.Pdf.Canvas.Parser;
 using PdfSharp.Pdf.IO;
-using System.Drawing;
-using System.Drawing.Imaging;
-using PdfDocument = PdfSharp.Pdf.PdfDocument;
-using PdfPage = PdfSharp.Pdf.PdfPage;
-using PdfReader = PdfSharp.Pdf.IO.PdfReader;
+using PdfSharpDocument = PdfSharp.Pdf.PdfDocument;
+using PdfSharpPage = PdfSharp.Pdf.PdfPage;
+using PdfSharpReader = PdfSharp.Pdf.IO.PdfReader;
 using CsvHelper;
 using CsvHelper.Configuration;
 using System.Globalization;
 using System.Net.Http.Json;
+using System.Diagnostics;
 
 
 #pragma warning disable CA1416 // Validate platform compatibility
@@ -96,22 +95,49 @@ static class Program
     }
 
     // Salvando a página como imagem
-    static string SavePageAsJpg(PdfSharp.Pdf.PdfPage page, int pageId, string outputFolder)
+
+    static string SavePageAsJpg(string pdfPath, int pageNumber, string outputFolder)
     {
-        string imagePath = Path.Combine(outputFolder, $"page_{pageId}.jpg");
+        // Caminho para o executável do Ghostscript
+        string ghostscriptPath = @"C:\Program Files\gs\gs10.03.1\bin\gswin64c.exe"; // Ajuste o caminho conforme necessário
 
-        // Exemplo simplificado que cria um bitmap branco:
-        using (var bitmap = new Bitmap((int)page.Width.Point, (int)page.Height.Point))
+        // Caminho de saída da imagem
+        string imagePath = $"page_{pageNumber}.png";
+        string outputPath = Path.Combine(outputFolder, imagePath);
+
+        // Argumentos para o comando do Ghostscript
+        string arguments = $"-dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r300 -dFirstPage={pageNumber} -dLastPage={pageNumber} -sOutputFile=\"{outputPath}\" \"{pdfPath}\"";
+
+        // Configura o processo para chamar o Ghostscript
+        ProcessStartInfo startInfo = new ProcessStartInfo
         {
+            FileName = ghostscriptPath,
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
 
-            using (var graphics = Graphics.FromImage(bitmap))
-            {
-                graphics.Clear(Color.White);
-                // Adicionar lógica para desenhar o conteúdo da página no bitmap
-            }
+        #pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
+        using (Process process = Process.Start(startInfo))
+        {
+            // Aguarda a conclusão do processo
+            #pragma warning disable CS8602 // Dereference of a possibly null reference.
+            process.WaitForExit();
+            #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
-            bitmap.Save(imagePath, ImageFormat.Jpeg);
+            // Lê a saída padrão e a saída de erro
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+
+            // Exibe a saída e a saída de erro para depuração
+            if (!string.IsNullOrEmpty(output))
+                Console.WriteLine("Output: " + output);
+            if (!string.IsNullOrEmpty(error))
+                Console.WriteLine("Error: " + error);
         }
+        #pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
         return imagePath;
     }
 
@@ -120,19 +146,17 @@ static class Program
     {
         try
         {
-            PdfDocument pdfDocument = PdfReader.Open(pdfPath, PdfDocumentOpenMode.ReadOnly);
+            PdfSharpDocument pdfDocument = PdfSharpReader.Open(pdfPath, PdfDocumentOpenMode.ReadOnly);
 
             for (int pageNum = 1; pageNum < pdfDocument.PageCount; pageNum++)
             {
 
-                //if(pageNum < 108) continue; // Pula as páginas pré 108
-                PdfPage page = pdfDocument.Pages[pageNum];
+                
+                PdfSharpPage page = pdfDocument.Pages[pageNum];
                 string text = ExtractTextFromPage(pdfPath, pageNum);
                 text = CleanText(text);
-
+                string pageImagePath = SavePageAsJpg(pdfPath, pageNum, outputFolder);
                 string correctedText = await textCorrectionService.GetCorrectedTextAsync(text, pageNum);
-
-                string pageImagePath = SavePageAsJpg(page, pageNum, outputFolder);
 
                 var data = new PageData
                 {
